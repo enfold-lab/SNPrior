@@ -1,5 +1,6 @@
 # User defined ignores
 results/
+cache/
 logs.txt
 
 # Byte-compiled / optimized / DLL files
