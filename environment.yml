@@ -21,6 +21,7 @@ dependencies:
   # Development
   - jupyter
   - pip
+
   - pip:
       - deap==1.4.1
       - xgboost==2.0.3

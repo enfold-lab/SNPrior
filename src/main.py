@@ -45,7 +45,7 @@ def train_ML(X_outer_train, y_outer_train, X_outer_test, inner_splits, method, p
         base_model = SVC(random_state=RANDOM_SEED)
         grid_search = GridSearchCV(
             estimator=base_model, param_grid = params, cv=inner_splits,
-            scoring='accuracy', verbose=1, refit=False
+            scoring='accuracy', verbose=1, refit=False, n_jobs=-1
         )
         grid_search.fit(X_outer_train, y_outer_train)
         model = SVC(**grid_search.best_params_, random_state=RANDOM_SEED)
@@ -445,7 +445,7 @@ def select_and_train(target_feature, save_result_file_name = "results.xlsx"):
     select_feature_from_cache = False
     n_select_list = [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072]
     # n_select_list = [100, 1000, 10000, 100000, 1000000] # PCA
-    n_dim_reduce_list = [128, 256, 512, 1024, None]  ## list should always contain None to perform whole feature training after selection
+    n_dim_reduce_list = [None]  ## list should always contain None to perform whole feature training after selection # [128, 256, 512, 1024, None]
 
     ## For finding Minimum SNPs (Verify setting once again)
     # pre_selection_methods = ["random"]
@@ -491,8 +491,11 @@ def select_and_train(target_feature, save_result_file_name = "results.xlsx"):
 
     outer_cv = StratifiedGroupKFold(n_splits=OUTER_FOLDS, shuffle=True, 
                                     random_state=RANDOM_SEED_DATA_SPLIT)
+    outer_splits = list(outer_cv.split(X, y, groups))
+
     result_combined = []
-    for outer_fold, (outer_train_idx, outer_test_idx) in enumerate(outer_cv.split(X, y, groups)):
+    for outer_fold in range(len(outer_splits)):
+        outer_train_idx, outer_test_idx = outer_splits[outer_fold]
         y_outer_train = y[outer_train_idx]
         groups_outer_train = groups[outer_train_idx]
         y_outer_test = y[outer_test_idx]

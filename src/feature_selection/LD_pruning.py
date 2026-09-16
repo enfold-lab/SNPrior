@@ -28,7 +28,7 @@ def LD_prunning(X, n_list, variant_info_df):
     R2 = 1.0
     SEED = 42
     THREADS = 64
-    MEMORY_MB = 81920
+    MEMORY_MB = 8192
 
     n = int(max(n_list))
     samples, variants = X.shape
