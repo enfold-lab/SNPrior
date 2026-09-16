@@ -443,7 +443,7 @@ def select_and_train(target_feature, save_result_file_name = "results.xlsx"):
 
     select_methods = ["random", "xgb", "rf", "variance", "chi2", "f_classif"] # "fst", "af", Extra-trees, "mutual_info_classif"
     select_feature_from_cache = False
-    n_select_list = [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072]
+    n_select_list = [32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]  #131072
     # n_select_list = [100, 1000, 10000, 100000, 1000000] # PCA
     n_dim_reduce_list = [None]  ## list should always contain None to perform whole feature training after selection # [128, 256, 512, 1024, None]
 
