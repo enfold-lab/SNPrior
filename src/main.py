@@ -102,6 +102,8 @@ def train_ML(X_outer_train, y_outer_train, X_outer_test, inner_splits, method, p
 
 
 def evaluate_performance(y_test, y_pred, label_mapping, save_file_prefix):
+    assert len(np.unique(y_test)) == len(label_mapping), "every class must appear in y_test"
+
     accuracy = accuracy_score(y_test, y_pred)
     f1_micro = f1_score(y_test, y_pred, average='micro')
     f1_macro = f1_score(y_test, y_pred, average='macro')
@@ -119,15 +121,19 @@ def evaluate_performance(y_test, y_pred, label_mapping, save_file_prefix):
         f"class_{class_name}_accuracy": acc for class_name, precision, recall, f1, acc in zip(class_names, precisions, recalls, f1_scores, class_accuracies)
     }
 
-    # plt.figure(figsize=(8, 7))
-    # sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', cbar=False, 
-    #             xticklabels=['Class 0', 'Class 1'], yticklabels=['Class 0', 'Class 1'])
-    # plt.xlabel('Predicted')
-    # plt.ylabel('Actual')
-    # plt.title('Confusion Matrix')
-
-    # # plt.savefig(f"{save_file_prefix}_confusion_matrix.pdf", dpi = 300)
-    # plt.show()
+    # plt.figure(figsize=(12, 10))
+    # cmap = sns.light_palette('#355C7D', as_cmap=True)
+    # sns.heatmap(
+    #     conf_matrix, annot=True, fmt='.0f', cmap=cmap, annot_kws={"size": 12},
+    #     xticklabels=class_names, yticklabels=class_names,
+    # )
+    # plt.xlabel('Predicted', fontsize=20)
+    # plt.ylabel('Actual', fontsize=20)
+    # plt.xticks(fontsize=18)
+    # plt.yticks(fontsize=18)
+    # plt.title('Confusion Matrix', fontsize=20)
+    # plt.savefig(f"{save_file_prefix}_confusion_matrix.pdf", format='pdf', dpi = 300)
+    # plt.close()
 
     metrics = {
         'accuracy': accuracy,
@@ -242,7 +248,8 @@ def select_feature(
                     else:
                         variances = np.var(X_outer_train, axis=0)
 
-                    # np.save(f"{num_snps_before}_seed{RANDOM_SEED}_{method}.npy", variances)
+                    if cache_file_prefix is not None:
+                        np.save(f"{cache_file_prefix}_feature_variance.npy", variances)
 
                     selected_indices = np.argsort(variances)[-n:]
                     boolean_mask = np.zeros(num_snps_before, dtype=bool)
@@ -436,13 +443,14 @@ def select_and_train(target_feature, save_result_file_name = "results.xlsx"):
 
     save_dir = Path("./results")
     cache_dir = Path("./cache")
+    plot_dir = save_dir / "plots"
 
     pre_selection_methods = ["variance", "random", "fst", "af", "ld_pruning"] # "chi2", "f_classif"
     n_pre_select_list = [1000000] #[2000000, 4000000, 8000000, 16000000, 32000000]#
     n_pre_select_goal = 1000000
 
     select_methods = ["random", "xgb", "rf", "variance", "chi2", "f_classif"] # "fst", "af", Extra-trees, "mutual_info_classif"
-    select_feature_from_cache = False
+    select_feature_from_cache = True
     n_select_list = [32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]  #131072
     # n_select_list = [100, 1000, 10000, 100000, 1000000] # PCA
     n_dim_reduce_list = [None]  ## list should always contain None to perform whole feature training after selection # [128, 256, 512, 1024, None]
@@ -462,7 +470,7 @@ def select_and_train(target_feature, save_result_file_name = "results.xlsx"):
     # n_dim_reduce_list = [64, 128, None]
 
 
-    ML_models = ["SVM", "RF", "XGB", "SNP-BLUP"] #["DT", "KNN"]
+    ML_models = ["SVM"] #["RF", "XGB", "SNP-BLUP"] # ["DT", "KNN"]
 
     hyper_params = {
         "SVM": [
@@ -485,6 +493,7 @@ def select_and_train(target_feature, save_result_file_name = "results.xlsx"):
     feature_data_path, label_file = prepare_data_paths()
     save_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
+    plot_dir.mkdir(parents=True, exist_ok=True)
 
     dataset = PreprocessedGenotypeDataset(feature_data_path / target_feature, label_file)
     (X, y_original, y), groups, label_mapping, variant_info_df = dataset.get_data()
@@ -507,11 +516,17 @@ def select_and_train(target_feature, save_result_file_name = "results.xlsx"):
         inner_splits = list(inner_cv.split(np.zeros(len(outer_train_idx)), y_outer_train, groups_outer_train))
 
         for pre_feature_select_method in pre_selection_methods:
+            pre_select_cache_file_prefix = cache_dir / (
+                f"{X.shape[1]}_seed{RANDOM_SEED}_cv{RANDOM_SEED_DATA_SPLIT}"
+                f"_outerfold{outer_fold}"
+                f"_{pre_feature_select_method}"
+            )
             try:
                 X_pre_selected_list, perf_metric_preselect = select_feature(
-                    X = X, y = y, 
+                    X = X, y = y,
                     outer_train_idx = outer_train_idx, inner_splits = inner_splits,
                     method = pre_feature_select_method, n_list = n_pre_select_list, variant_info_df = variant_info_df,
+                    # cache_file_prefix = pre_select_cache_file_prefix,
                 ) 
             except Exception as e:
                 logger.error(f"While pre_select_feature of {pre_feature_select_method} in outer fold {outer_fold}. {e.__class__.__name__}: {str(e)}")
@@ -632,18 +647,15 @@ def select_and_train(target_feature, save_result_file_name = "results.xlsx"):
                                     inner_train_idx, inner_val_idx = inner_splits[0]
                                     y_inner_train, y_inner_val = y_outer_train[inner_train_idx], y_outer_train[inner_val_idx]
 
-                                    eval_metrics_train = evaluate_performance(
-                                        y_inner_train, y_pred_inner_train, label_mapping, 
-                                        save_dir / f"{feature_select_method}_{n_select}_{train_model}_{hyper_param_index}_train"
+                                    plot_file_prefix = plot_dir / (
+                                        f"{X.shape[1]}_seed{RANDOM_SEED}_cv{RANDOM_SEED_DATA_SPLIT}"
+                                        f"_outerfold{outer_fold}"
+                                        f"_{pre_feature_select_method}_{n_pre_select}_{n_pre_select_goal}"
+                                        f"_{feature_select_method}_{n_select}_{train_model}"
                                     )
-                                    eval_metrics_val = evaluate_performance(
-                                        y_inner_val, y_pred_inner_val, label_mapping, 
-                                        save_dir / f"{feature_select_method}_{n_select}_{train_model}_{hyper_param_index}_val"
-                                    )
-                                    eval_metrics_test = evaluate_performance(
-                                        y_outer_test, y_pred_outer_test, label_mapping, 
-                                        save_dir / f"{feature_select_method}_{n_select}_{train_model}_{hyper_param_index}_test"
-                                    )
+                                    eval_metrics_train = evaluate_performance(y_inner_train, y_pred_inner_train, label_mapping, f"{plot_file_prefix}_train")
+                                    eval_metrics_val = evaluate_performance(y_inner_val, y_pred_inner_val, label_mapping, f"{plot_file_prefix}_val")
+                                    eval_metrics_test = evaluate_performance(y_outer_test, y_pred_outer_test, label_mapping, f"{plot_file_prefix}_test")
                                     logger.info(f' - Train done with Accuracy: {eval_metrics_test["accuracy"]*100:.4f}%, perf_metrics_train: {perf_metric_train}')
 
 
