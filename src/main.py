@@ -40,15 +40,20 @@ def train_ML(X_outer_train, y_outer_train, X_outer_test, inner_splits, method, p
     inner_train_idx, inner_val_idx = inner_splits[0]
     X_inner_train, X_inner_val = X_outer_train[inner_train_idx], X_outer_train[inner_val_idx]
     y_inner_train, y_inner_val = y_outer_train[inner_train_idx], y_outer_train[inner_val_idx]
+    is_binary_classification = len(np.unique(y_outer_train)) == 2
 
     if method == "SVM":
-        base_model = SVC(random_state=RANDOM_SEED)
+        base_model = SVC(class_weight='balanced' if is_binary_classification else None, random_state=RANDOM_SEED)
         grid_search = GridSearchCV(
             estimator=base_model, param_grid = params, cv=inner_splits,
-            scoring='accuracy', verbose=1, refit=False, n_jobs=-1
+            scoring='f1_macro' if is_binary_classification else 'accuracy',
+            verbose=1, refit=False, n_jobs=-1
         )
         grid_search.fit(X_outer_train, y_outer_train)
-        model = SVC(**grid_search.best_params_, random_state=RANDOM_SEED)
+        model = base_model.set_params(**grid_search.best_params_)
+
+    elif method == "SVM_fixed":
+        model = SVC(**params, class_weight='balanced' if is_binary_classification else None, random_state=RANDOM_SEED)
 
     elif method == "SNP-BLUP":
         mu = X_inner_train.mean(axis=0)
@@ -133,6 +138,7 @@ def evaluate_performance(y_test, y_pred, label_mapping, save_file_prefix):
     # plt.yticks(fontsize=18)
     # plt.title('Confusion Matrix', fontsize=20)
     # plt.savefig(f"{save_file_prefix}_confusion_matrix.pdf", format='pdf', dpi = 300)
+    # pd.DataFrame(conf_matrix, index=class_names, columns=class_names).to_csv(f"{save_file_prefix}_confusion_matrix.csv")
     # plt.close()
 
     metrics = {
@@ -255,6 +261,7 @@ def select_feature(
                     boolean_mask = np.zeros(num_snps_before, dtype=bool)
                     boolean_mask[selected_indices] = True
                 elif method == "fst":
+                    ## This is ANOVA F-value based implemenation of Fst
                     unique_pops = np.unique(y_outer_train)
                     num_variants = X.shape[1]
 
@@ -455,13 +462,18 @@ def select_and_train(target_feature, save_result_file_name = "results.xlsx"):
     # n_select_list = [100, 1000, 10000, 100000, 1000000] # PCA
     n_dim_reduce_list = [None]  ## list should always contain None to perform whole feature training after selection # [128, 256, 512, 1024, None]
 
-    ## For finding Minimum SNPs (Verify setting once again)
-    # pre_selection_methods = ["random"]
-    # n_pre_select_list = [8192]
-    # n_pre_select_goal = 8192
-    # select_methods = ["xgb"]
-    # n_select_list = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192] # Mimimum SNPs
+    ML_models = ["SVM"] #["RF", "XGB", "SNP-BLUP"] # ["DT", "KNN"]
 
+    ## Finding Minimum_SNPss
+    # pre_selection_methods = ["None"]
+    # n_pre_select_goal = 8192
+    # n_select_list = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192]
+
+    ## Direct training without secondary feature selection
+    # pre_selection_methods = ["random"]
+    # select_methods = ["random"]
+    # n_select_list = [1000000]
+    # ML_models = ["SVM_fixed"]
 
     ## For debugging
     # n_pre_select_list = [200]
@@ -470,11 +482,12 @@ def select_and_train(target_feature, save_result_file_name = "results.xlsx"):
     # n_dim_reduce_list = [64, 128, None]
 
 
-    ML_models = ["SVM"] #["RF", "XGB", "SNP-BLUP"] # ["DT", "KNN"]
-
     hyper_params = {
         "SVM": [
-            {'C': [0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1, 10], 'kernel': ['linear']}  # grid search params
+            {'C': [0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1, 10], 'kernel': ['linear']},  # grid search params
+        ],
+        "SVM_fixed": [
+            {'C': 0.1, 'kernel': 'linear'},   # mostly optimal
         ],
         "RF": [
             # {'n_estimators': 100, 'max_features': 'sqrt', 'max_depth': None, 'min_samples_split': 2, 'min_samples_leaf': 1}, # default
@@ -568,15 +581,20 @@ def select_and_train(target_feature, save_result_file_name = "results.xlsx"):
                         f"_{feature_select_method}"
                     )
 
-            # for _ in [1]:
-            #         perf_metric_preselect = {}
-            #         X_pre_selected_final = X
-            #         y_backup, y_original_backup = y, y_original
-            #         feature_select_method = "xgb"
-            #         for class_target in ['BEB', 'CDX', 'CEU', 'CHS', 'CLM', 'ESN', 'FIN', 'GWD', 'IBS', 'JPT', 'KHV', 'LWK', 'MSL', 'MXL', 'PEL', 'PJL', 'PUR', 'TSI', 'YRI']:
-            #             y, y_original, label_mapping = select_label(y_backup, y_original_backup, target_label = class_target)
-            #             current_loop = {"random_seed": RANDOM_SEED, "select_method": feature_select_method, "class_target": class_target}
-            #             feature_importance_cache_file_prefix = f"{X.shape[1]}_seed{RANDOM_SEED}_{feature_select_method}_cls_{class_target}"
+            # for _ in [1]: # toggle for minimum_SNPs
+            #     perf_metric_preselect = {}
+            #     X_pre_selected_final = X
+            #     n_pre_select = n_pre_select_goal
+            #     y_backup, y_original_backup = y, y_original
+            #     feature_select_method = "xgb"
+            #     for class_target in ['ACB', 'STU', 'ITU', 'GIH', 'CHB', 'GBR', 'ASW', 'BEB', 'CDX', 'CEU', 'CHS', 'CLM', 'ESN', 'FIN', 'GWD', 'IBS', 'JPT', 'KHV', 'LWK', 'MSL', 'MXL', 'PEL', 'PJL', 'PUR', 'TSI', 'YRI']:
+            #         y, y_original, label_mapping = select_label(y_backup, y_original_backup, target_label = class_target)
+            #         y_outer_train, y_outer_test = y[outer_train_idx], y[outer_test_idx]
+            #         current_loop = {"random_seed": RANDOM_SEED, "random_seed_cv": RANDOM_SEED_DATA_SPLIT, "outer_fold": outer_fold, "select_method": feature_select_method, "class_target": class_target}
+            #         feature_importance_cache_file_prefix = cache_dir / (
+            #             f"{X.shape[1]}_seed{RANDOM_SEED}_cv{RANDOM_SEED_DATA_SPLIT}"
+            #             f"_outerfold{outer_fold}_{feature_select_method}_cls_{class_target}"
+            #         )
 
                     logger.info(f"*************** current loop: {current_loop} ***************")
 
@@ -681,9 +699,9 @@ def main():
 
     global RANDOM_SEED
     input_feature_list =  [
-        "merged_support3",
-        # "merged_support3_variance_1M_seed_42_xgb_8192",
-        # "merged_support3_random_1k_seed_42",
+        "merged_support3",    # 43M inputs
+        # "merged_support3_variance_1000000_xgb_8192",   # minimum_SNPs
+        # "merged_support3_random_1k_seed_42",   # For testing purpose
     ]
     seed_list = [42] #, 919, 1204, 624, 306
 
