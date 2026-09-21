@@ -35,7 +35,11 @@ conda activate SNPrior
 python src/main.py
 ```
 
-## Notes
+- **Memory.** The full genotype matrix (3,202 samples × ~61.6 million SNPs, `int8`) occupies about 197 GB in memory, and selection on the full matrix needs several times that.
 
-- **Memory.** The full genotype matrix (3,202 samples × ~43 million SNPs, `int8`) occupies about 138 GB in memory, and selection on the full matrix needs several times that.
+## Reproduce the figures
 
+Use notebooks in `figures/`
+
+- `main_figure_R.ipynb` (R) — main and supplementary figures; requires a separate R environment (`conda env create -f figures/environment.yml`, `conda activate r-env`).
+- `geography_plot.ipynb` (Python, `SNPrior` environment) — drawing geography map.
