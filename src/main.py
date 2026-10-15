@@ -516,7 +516,7 @@ def select_and_train(target_feature, save_result_file_name = "results.xlsx"):
     outer_splits = list(outer_cv.split(X, y, groups))
 
     result_combined = []
-    for outer_fold in range(len(outer_splits)):
+    for outer_fold in range(len(outer_splits)): # [int(target_feature.split("outerfold")[1].split("_")[0])]:
         outer_train_idx, outer_test_idx = outer_splits[outer_fold]
         y_outer_train = y[outer_train_idx]
         groups_outer_train = groups[outer_train_idx]
@@ -700,7 +700,11 @@ def main():
     global RANDOM_SEED
     input_feature_list =  [
         "merged_support3",    # 43M inputs
-        # "merged_support3_variance_1000000_xgb_8192",   # minimum_SNPs
+        # "merged_support3_outerfold0_variance_1000000_xgb_8192",   # minimum_SNPs
+        # "merged_support3_outerfold1_variance_1000000_xgb_8192",
+        # "merged_support3_outerfold2_variance_1000000_xgb_8192",
+        # "merged_support3_outerfold3_variance_1000000_xgb_8192",
+        # "merged_support3_outerfold4_variance_1000000_xgb_8192",
         # "merged_support3_random_1k_seed_42",   # For testing purpose
     ]
     seed_list = [42] #, 919, 1204, 624, 306
